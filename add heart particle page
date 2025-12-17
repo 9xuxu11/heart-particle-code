@@ -1,0 +1,185 @@
+add heart particle page
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>大尺寸完整爱心+心跳+粒子散开</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            overflow: hidden; 
+            background: #000; 
+            height: 100vh; 
+        }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script>
+        // 初始化核心组件
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(
+            window.innerWidth / -2.8,  // 适配更大的爱心尺寸
+            window.innerWidth / 2.8,
+            window.innerHeight / 2.8,
+            window.innerHeight / -2.8,
+            1, 2000
+        );
+        camera.position.z = 120; // 适配大尺寸爱心
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        document.body.appendChild(renderer.domElement);
+
+        // 存储粒子初始位置+散开参数（保证形状+动态）
+        let initialData = []; // 格式：[初始x, 初始y, 初始z, 散开速度, 最大散开距离]
+
+        // 创建完整大尺寸爱心粒子
+        function createCompleteHeart() {
+            const PARTICLE_COUNT = 18000; // 更多粒子填充完整爱心
+            const HEART_SIZE = 28;        // 大幅放大尺寸（解决小的问题）
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(PARTICLE_COUNT * 3);
+            const colors = new Float32Array(PARTICLE_COUNT * 3);
+            const sizes = new Float32Array(PARTICLE_COUNT);
+
+            // 鲜艳粉色系
+            const pinks = [
+                new THREE.Color('#ff85c0'),
+                new THREE.Color('#ff5ca8'),
+                new THREE.Color('#ff3790')
+            ];
+
+            // 爱心判断公式（保证顶部完整）
+            function inHeart(x, y) {
+                const x2 = x / HEART_SIZE;
+                const y2 = y / HEART_SIZE;
+                return Math.pow(x2 **2 + y2** 2 - 1, 3) - x2 **2 * y2** 3 <= 0;
+            }
+
+            // 填充粒子（修正Y轴范围，解决顶部截断）
+            let i = 0;
+            while (i < PARTICLE_COUNT) {
+                // 调整Y轴范围：减少向下偏移，增加顶部空间
+                const x = (Math.random() - 0.5) * HEART_SIZE * 2.5;
+                const y = (Math.random() - 0.55) * HEART_SIZE * 2.5; // 从-0.6→-0.55，保留顶部粒子
+
+                if (inHeart(x, y)) {
+                    const baseX = x + (Math.random()-0.5)*0.3;
+                    const baseY = y + (Math.random()-0.5)*0.3;
+                    const baseZ = (Math.random()-0.5)*15;
+                    
+                    // 记录：初始位置+随机散开参数
+                    initialData.push([
+                        baseX, 
+                        baseY, 
+                        baseZ, 
+                        Math.random() * 0.02 + 0.01, // 散开速度
+                        Math.random() * 2 + 1.5       // 最大散开距离
+                    ]);
+
+                    // 赋值位置
+                    positions[i*3] = baseX;
+                    positions[i*3+1] = baseY;
+                    positions[i*3+2] = baseZ;
+
+                    // 颜色
+                    const c = pinks[Math.floor(Math.random()*pinks.length)];
+                    colors[i*3] = c.r;
+                    colors[i*3+1] = c.g;
+                    colors[i*3+2] = c.b;
+
+                    // 粒子大小（适配大爱心）
+                    sizes[i] = 1.3 + Math.random() * 1.7;
+                    i++;
+                }
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+            // 粒子材质（增强质感）
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    pointTex: { value: new THREE.TextureLoader().load('https://threejs.org/examples/textures/sprites/disc.png') }
+                },
+                vertexShader: `
+                    attribute float size;
+                    attribute vec3 color;
+                    varying vec3 vColor;
+                    void main() {
+                        vColor = color;
+                        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+                        gl_PointSize = size * (220.0 / -mvPos.z); // 适配大爱心粒子
+                        gl_Position = projectionMatrix * mvPos;
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vColor;
+                    uniform sampler2D pointTex;
+                    void main() {
+                        gl_FragColor = vec4(vColor, 0.95);
+                        gl_FragColor *= texture2D(pointTex, gl_PointCoord);
+                    }
+                `,
+                transparent: true,
+                blending: THREE.AdditiveBlending
+            });
+
+            return new THREE.Points(geometry, material);
+        }
+
+        // 添加完整爱心到场景
+        const heart = createCompleteHeart();
+        scene.add(heart);
+
+        // 核心动画：心跳缩放 + 粒子散开回弹
+        function animate() {
+            requestAnimationFrame(animate);
+            const posArray = heart.geometry.attributes.position.array;
+            const time = Date.now() * 0.002; // 心跳节奏
+
+            // 心跳缩放系数（自然收缩-扩张）
+            const beatScale = 1 + (Math.sin(time * 3) * 0.15 + Math.sin(time * 1.2) * 0.09);
+
+            // 遍历粒子：同时做心跳缩放 + 散开回弹
+            for (let i = 0; i < posArray.length; i += 3) {
+                const idx = i / 3;
+                const [baseX, baseY, baseZ, spreadSpeed, maxSpread] = initialData[idx];
+
+                // 1. 心跳缩放（保持整体爱心形状）
+                const scaledX = baseX * beatScale;
+                const scaledY = baseY * beatScale;
+                const scaledZ = baseZ * (beatScale - 0.05); // Z轴轻微缩放
+
+                // 2. 粒子散开回弹（心跳扩张时散开，收缩时回弹）
+                const spreadProgress = Math.sin(time * 2 + idx * 0.02); // 每个粒子独立节奏
+                const currentSpread = spreadProgress * maxSpread; // 当前散开距离
+
+                // 最终位置 = 心跳缩放位置 + 散开偏移
+                posArray[i] = scaledX + (baseX * 0.1) * currentSpread * spreadSpeed * 10;
+                posArray[i+1] = scaledY + (baseY * 0.1) * currentSpread * spreadSpeed * 10;
+                posArray[i+2] = scaledZ + (baseZ * 0.1) * currentSpread * spreadSpeed * 10;
+            }
+
+            heart.geometry.attributes.position.needsUpdate = true;
+            renderer.render(scene, camera);
+        }
+
+        // 窗口自适应（适配大爱心）
+        window.addEventListener('resize', () => {
+            camera.left = window.innerWidth / -2.8;
+            camera.right = window.innerWidth / 2.8;
+            camera.top = window.innerHeight / 2.8;
+            camera.bottom = window.innerHeight / -2.8;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
